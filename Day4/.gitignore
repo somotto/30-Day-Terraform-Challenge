@@ -1,0 +1,5 @@
+ClusteredWebServer/.terraform*
+ClusteredWebServer/terraform*
+
+ConfigurableWebServer/.terraform*
+ConfigurableWebServer/terraform*
