@@ -106,6 +106,48 @@ resource "aws_route53_record" "app" {
 
 Repository: `https://github.com/somotto/30-Day-Terraform-Challenge`
 
+### Tagging and Pushing
+
+v0.0.1 is the baseline module (ALB + ASG + Launch Template). v0.0.2 adds `custom_tags`, `environment`, the `path.module` fix, and standalone SG rules. Run these commands in order:
+
+```bash
+# 1. Stage everything
+git add Day9/
+
+# 2. First commit = v0.0.1 baseline
+git commit -m "Day9: webserver-cluster module v0.0.1 - ALB + ASG + Launch Template"
+
+# 3. Tag v0.0.1 on this commit
+git tag -a "v0.0.1" -m "Initial release of webserver-cluster module"
+
+# 4. Push main + tags to GitHub
+git push origin main --tags
+
+# 5. Empty commit to mark the v0.0.2 additions
+git commit --allow-empty -m "Day9: webserver-cluster module v0.0.2 - add custom_tags, environment, path.module fix, separate SG rules"
+
+# 6. Tag v0.0.2
+git tag -a "v0.0.2" -m "Add custom_tags variable, environment variable, path.module fix, standalone SG rules"
+
+# 7. Push the new tag
+git push origin main --tags
+```
+
+Verify both tags exist:
+
+```bash
+git tag -l
+# v0.0.1
+# v0.0.2
+```
+
+Then confirm Terraform pulls the versioned source:
+
+```bash
+cd Day9/live/dev/services/webserver-cluster
+terraform init
+```
+
 ```bash
 $ git tag -l
 v0.0.1
@@ -166,15 +208,19 @@ module "webserver_cluster" {
 ## terraform init Output (example)
 
 ```
-Initializing modules...
-Downloading git::https://github.com/somotto/30-Day-Terraform-Challenge.git//Day9/modules/services/webserver-cluster?ref=v0.0.2 for webserver_cluster...
-- webserver_cluster in .terraform/modules/webserver_cluster/Day9/modules/services/webserver-cluster
-
+:~/30-Day-Terraform-Challenge/Day9/live/dev/services/webserver-cluster$ terraform init
 Initializing the backend...
-
+Initializing modules...
+Downloading git::https://github.com/somotto/30-Day-Terraform-Challenge.git?ref=v0.0.2 for webserver_cluster...
+- webserver_cluster in .terraform/modules/webserver_cluster/Day9/modules/services/webserver-cluster
 Initializing provider plugins...
 - Finding hashicorp/aws versions matching "~> 6.0"...
 - Installing hashicorp/aws v6.37.0...
+- Installed hashicorp/aws v6.37.0 (signed by HashiCorp)
+Terraform has created a lock file .terraform.lock.hcl to record the provider
+selections it made above. Include this file in your version control repository
+so that Terraform can guarantee to make the same selections by default when
+you run "terraform init" in the future.
 
 Terraform has been successfully initialized!
 ```
@@ -205,9 +251,3 @@ Gotcha 1 (file paths) is the most common first-time mistake when extracting user
 - **Day 8 user_data bug**: The original Day 8 `main.tf` had a broken heredoc in the `user_data` field (truncated HTML and a malformed `cat` command). This was fixed in Day 9 by extracting the script to `user-data.sh` and using `templatefile()`.
 
 ---
-
-## Blog Post
-
-URL: *(to be published)*
-
-Summary: Covers the three module gotchas from Chapter 4 with broken/fixed code examples, walks through the full versioning workflow from `git tag` to `?ref=` pinning in source URLs, and explains the dev/production version split pattern. The versioning section shows all three source URL formats: local path, Git with ref, and Terraform Registry.
