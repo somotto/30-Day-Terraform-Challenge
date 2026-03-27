@@ -4,3 +4,4 @@
 *.tfstate.*.backup
 errored.tfstate
 .terraform.lock.hcl
+*.tfstate.lock.info
