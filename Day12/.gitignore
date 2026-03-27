@@ -1,6 +1,6 @@
 .terraform/
 *.tfstate
 *.tfstate.backup
-*.tfstate.lock.info
-.terraform.lock.hcl
+*.tfstate.*.backup
 errored.tfstate
+.terraform.lock.hcl
