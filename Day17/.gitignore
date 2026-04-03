@@ -18,3 +18,4 @@ labs/**/terraform.tfstate.*.backup
 # Sensitive variable files
 *.tfvars
 !*.tfvars.example
+.tfstate
