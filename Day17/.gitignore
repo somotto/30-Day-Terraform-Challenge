@@ -1,0 +1,20 @@
+# Test result files generated at runtime
+results/
+
+# Terraform state and lock files in labs
+labs/**/.terraform/
+labs/**/.terraform.lock.hcl
+labs/**/terraform.tfstate
+labs/**/terraform.tfstate.backup
+labs/**/terraform.tfstate.*.backup
+
+# Plan files
+*.tfplan
+/tmp/*.tfplan
+
+# Backup files created by regression check script
+*.regression-backup
+
+# Sensitive variable files
+*.tfvars
+!*.tfvars.example
