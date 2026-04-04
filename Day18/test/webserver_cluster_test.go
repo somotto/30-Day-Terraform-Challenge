@@ -53,20 +53,24 @@ func TestWebserverClusterIntegration(t *testing.T) {
 	assert.Equal(t, fmt.Sprintf("/aws/ec2/%s", clusterName), logGroupName,
 		"log_group_name must follow the /aws/ec2/<cluster_name> convention")
 
-	// ALBs take time to register targets and pass health checks.
-	// The ASG health_check_grace_period is 120s, plus instance boot time.
-	// We retry for up to 15 minutes (60 × 15s) to be safe.
+	// ALB health checks pass before apply returns (min_elb_capacity=1),
+	// but the python HTTP server may still be starting. Retry for 20 minutes.
 	url := fmt.Sprintf("http://%s", albDnsName)
 	http_helper.HttpGetWithRetryWithCustomValidation(
 		t,
 		url,
 		nil,
-		60,
-		15*time.Second,
+		80,             // 80 retries
+		15*time.Second, // 15s apart = 20 minutes total
 		func(statusCode int, body string) bool {
 			return statusCode == 200 && strings.Contains(body, "Hello World")
 		},
 	)
+
+	// Final check — log the actual response so failures are easy to diagnose
+	statusCode, body := http_helper.HttpGet(t, url, nil)
+	assert.Equal(t, 200, statusCode, "final HTTP GET must return 200")
+	assert.Contains(t, body, "Hello World", "response body must contain 'Hello World'")
 }
 
 // TestWebserverClusterOutputs verifies that all expected outputs are present
