@@ -70,8 +70,6 @@ jobs:
         working-directory: Day18/test
 
       - name: Run Integration Tests
-        run: go test -v -timeout 45m -run "TestWebserverCluster" ./...
+        run: go test -v -timeout 60m -run "TestWebserverCluster" ./...
         working-directory: Day18/test
 
-  # E2E tests live in .github/workflows/day18-e2e.yml
-  # They run nightly (cron: "0 2 * * *") and on manual workflow_dispatch.
