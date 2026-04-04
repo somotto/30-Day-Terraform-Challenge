@@ -1,0 +1,77 @@
+# Scoped to Day18 only — only triggers when files under Day18/ change.
+# Other day directories are completely unaffected.
+
+name: Day18 Terraform Tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "Day18/**"
+  push:
+    branches: [main]
+    paths:
+      - "Day18/**"
+
+jobs:
+  unit-tests:
+    name: Unit Tests (terraform test)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.6.0"
+
+      - name: Configure AWS credentials (read-only for plan)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            us-east-1
+
+      - name: Terraform Init
+        run: terraform init
+        working-directory: Day18/modules/services/webserver-cluster
+
+      - name: Run Unit Tests
+        run: terraform test
+        working-directory: Day18/modules/services/webserver-cluster
+
+  integration-tests:
+    name: Integration Tests (Terratest)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    needs: unit-tests
+
+    env:
+      AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION:    us-east-1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
+          cache: true
+          cache-dependency-path: Day18/test/go.sum
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.6.0"
+          terraform_wrapper: false
+
+      - name: Download Go dependencies
+        run: go mod download
+        working-directory: Day18/test
+
+      - name: Run Integration Tests
+        run: go test -v -timeout 45m -run "TestWebserverCluster" ./...
+        working-directory: Day18/test
+
+  # E2E tests live in .github/workflows/day18-e2e.yml
+  # They run nightly (cron: "0 2 * * *") and on manual workflow_dispatch.
