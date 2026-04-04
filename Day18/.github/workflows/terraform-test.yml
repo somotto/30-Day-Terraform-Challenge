@@ -1,0 +1,101 @@
+# Job dependency design:
+#   unit-tests  ──► integration-tests
+#
+# unit-tests runs on EVERY pull_request to main.
+#   - Uses `terraform test` with command = plan — no real AWS resources.
+#   - Fast (seconds), free, gives instant feedback on every PR.
+#   - Catches naming convention regressions, wrong port numbers, bad tag values.
+#
+# integration-tests runs ONLY on push to main (i.e. after a PR is merged).
+#   - Uses Terratest — deploys real AWS infrastructure.
+#   - Slow (5–15 min), costs money, requires AWS credentials as secrets.
+#   - Only runs if unit-tests passed (needs: unit-tests).
+#   - Running on every PR would be too slow and expensive for developer feedback.
+
+name: Terraform Tests
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  # Job 1: Unit Tests — runs on every PR and every push to main
+  unit-tests:
+    name: Unit Tests (terraform test)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Install the exact Terraform version that supports the native test framework.
+      # terraform test requires Terraform >= 1.6.0.
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.6.0"
+
+      # Unit tests use `command = plan` so they need AWS credentials to resolve
+      # data sources (aws_vpc, aws_subnets, aws_ami). Use read-only credentials
+      # scoped to describe/list actions only — no create/delete permissions needed.
+      - name: Configure AWS credentials (read-only for plan)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            us-east-1
+
+      - name: Terraform Init
+        run: terraform init
+        working-directory: Day18/modules/services/webserver-cluster
+
+      # terraform test discovers all *.tftest.hcl files in the module directory
+      # and runs every run block. Exit code is non-zero if any assertion fails.
+      - name: Run Unit Tests
+        run: terraform test
+        working-directory: Day18/modules/services/webserver-cluster
+
+  # Job 2: Integration Tests — runs ONLY on push to main, after unit tests pass
+  integration-tests:
+    name: Integration Tests (Terratest)
+    runs-on: ubuntu-latest
+
+    if: github.event_name == 'push'
+
+    needs: unit-tests
+
+    env:
+      AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION:    us-east-1
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
+          cache: true
+          cache-dependency-path: Day18/test/go.sum
+
+      - name: Setup Terraform (required by Terratest)
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version:  "1.6.0"
+          # Disable the wrapper so Terratest can parse Terraform output directly.
+          terraform_wrapper:  false
+
+      - name: Download Go dependencies
+        run: go mod download
+        working-directory: Day18/test
+
+      # Run integration tests by matching the test name pattern.
+      # -timeout 30m: Terratest deploys real infra — give it enough time.
+      # -v: verbose output so failures are easy to diagnose in CI logs.
+      - name: Run Integration Tests
+        run: go test -v -timeout 30m -run "TestWebserverCluster" ./...
+        working-directory: Day18/test
