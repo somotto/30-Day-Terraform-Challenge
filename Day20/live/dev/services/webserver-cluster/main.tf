@@ -30,7 +30,7 @@ module "webserver_cluster" {
 
   cpu_alarm_threshold = 80
   log_retention_days  = 7
-  alarm_email         = "" 
+  alarm_email         = ""
 
   secret_source = "none"
   secret_ref    = ""
