@@ -1,0 +1,84 @@
+name: Day 20 — Terraform CI
+
+on:
+  pull_request:
+    paths: ["Day20/**"]
+  push:
+    branches: [main]
+    paths: ["Day20/**"]
+
+env:
+  AWS_DEFAULT_REGION: us-east-1
+
+jobs:
+  unit-tests:
+    name: Unit Tests (terraform test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            us-east-1
+
+      - name: terraform init
+        run: terraform init
+        working-directory: Day20/modules/services/webserver-cluster
+
+      - name: terraform test
+        run: terraform test
+        working-directory: Day20/modules/services/webserver-cluster
+
+  lint:
+    name: Format & Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
+
+      - name: fmt check (module)
+        run: terraform fmt -check -recursive
+        working-directory: Day20/modules
+
+      - name: fmt check (live)
+        run: terraform fmt -check -recursive
+        working-directory: Day20/live
+
+  integration-tests:
+    name: Integration Tests (Terratest)
+    runs-on: ubuntu-latest
+    # Only run on merge to main — keeps PR feedback fast and avoids real AWS spend on drafts
+    if: github.event_name == 'push'
+    needs: [unit-tests, lint]
+    env:
+      AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
+          # Must be false — the wrapper adds output that breaks Terratest's parser
+          terraform_wrapper: false
+
+      - name: go mod download
+        run: go mod download
+        working-directory: Day20/test
+
+      - name: run integration tests
+        run: go test -v -timeout 30m -run "TestWebserverCluster" ./...
+        working-directory: Day20/test
