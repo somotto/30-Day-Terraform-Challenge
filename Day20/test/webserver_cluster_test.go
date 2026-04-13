@@ -10,10 +10,11 @@ import (
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-// TestWebserverClusterIntegration deploys the module, waits for HTTP 200, then destroys.
+// TestWebserverClusterIntegration deploys the module, verifies all outputs, waits
+// for HTTP 200, then destroys. Outputs verification is folded in here to avoid
+// running a second parallel deploy (free-tier account limit).
 func TestWebserverClusterIntegration(t *testing.T) {
 	t.Parallel()
 
@@ -37,11 +38,20 @@ func TestWebserverClusterIntegration(t *testing.T) {
 	defer terraform.Destroy(t, opts)
 	terraform.InitAndApply(t, opts)
 
+	for _, name := range []string{
+		"alb_dns_name", "alb_arn", "asg_name",
+		"instance_role_name", "instance_profile_name",
+		"sns_topic_arn", "log_group_name",
+		"web_sg_id", "alb_sg_id",
+	} {
+		assert.NotEmpty(t, terraform.Output(t, opts, name),
+			"output '%s' must not be empty", name)
+	}
+
 	albDnsName   := terraform.Output(t, opts, "alb_dns_name")
 	asgName      := terraform.Output(t, opts, "asg_name")
 	logGroupName := terraform.Output(t, opts, "log_group_name")
 
-	assert.NotEmpty(t, albDnsName, "alb_dns_name must not be empty")
 	assert.Contains(t, asgName, clusterName, "ASG name must contain cluster name")
 	assert.Equal(t, fmt.Sprintf("/aws/ec2/%s", clusterName), logGroupName,
 		"log_group_name must follow /aws/ec2/<cluster_name> convention")
@@ -60,40 +70,8 @@ func TestWebserverClusterIntegration(t *testing.T) {
 	assert.Contains(t, body, "v3", "response must include app_version v3")
 }
 
-// TestWebserverClusterOutputs verifies all expected outputs are present after apply.
-func TestWebserverClusterOutputs(t *testing.T) {
-	t.Parallel()
-
-	uniqueID    := strings.ToLower(random.UniqueId())
-	clusterName := fmt.Sprintf("out-%s", uniqueID)
-
-	opts := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
-		TerraformDir: "../modules/services/webserver-cluster",
-		Vars: map[string]interface{}{
-			"cluster_name":       clusterName,
-			"environment":        "dev",
-			"instance_type":      "t3.micro",
-			"min_size":           1,
-			"max_size":           1,
-			"log_retention_days": 7,
-		},
-	})
-
-	defer terraform.Destroy(t, opts)
-	terraform.InitAndApply(t, opts)
-
-	for _, name := range []string{
-		"alb_dns_name", "alb_arn", "asg_name",
-		"instance_role_name", "instance_profile_name",
-		"sns_topic_arn", "log_group_name",
-		"web_sg_id", "alb_sg_id",
-	} {
-		require.NotEmpty(t, terraform.Output(t, opts, name),
-			"output '%s' must not be empty", name)
-	}
-}
-
-// TestWebserverClusterValidation ensures invalid variable values are rejected at plan time.
+// TestWebserverClusterValidation ensures invalid variable values are rejected at
+// plan time. Plan-only — no real AWS resources are created.
 func TestWebserverClusterValidation(t *testing.T) {
 	t.Parallel()
 
