@@ -240,6 +240,7 @@ resource "aws_autoscaling_group" "example" {
   min_size                  = var.min_size
   max_size                  = var.max_size
   min_elb_capacity          = var.min_size
+  force_delete              = true
 
   launch_template {
     id      = aws_launch_template.example.id
