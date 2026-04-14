@@ -1,0 +1,196 @@
+name: Infrastructure CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment for manual apply"
+        required: true
+        default: "dev"
+        type: choice
+        options: [dev, production]
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
+
+      - name: Format check
+        run: terraform fmt -check -recursive
+        working-directory: Day22
+
+      - name: Init (no backend)
+        run: terraform init -backend=false
+        working-directory: Day22/modules/services/webserver-cluster
+
+      - name: Validate
+        run: terraform validate
+        working-directory: Day22/modules/services/webserver-cluster
+
+      - name: Configure AWS credentials (read-only)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            us-east-1
+
+      - name: Init (with backend for test)
+        run: terraform init
+        working-directory: Day22/modules/services/webserver-cluster
+
+      - name: Unit tests
+        run: terraform test
+        working-directory: Day22/modules/services/webserver-cluster
+
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    needs: validate
+
+    env:
+      AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION:    us-east-1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
+
+      - name: Init
+        run: terraform init
+        working-directory: Day22/live/dev/services/webserver-cluster
+
+      - name: Plan
+        run: terraform plan -out=ci.tfplan
+        working-directory: Day22/live/dev/services/webserver-cluster
+
+      - name: Upload plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: Day22/live/dev/services/webserver-cluster/ci.tfplan
+          retention-days: 7
+
+  apply-dev:
+    name: Apply (dev)
+    runs-on: ubuntu-latest
+    needs: plan
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: dev
+
+    env:
+      AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION:    us-east-1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
+
+      - name: Init
+        run: terraform init
+        working-directory: Day22/live/dev/services/webserver-cluster
+
+      - name: Download plan artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan
+          path: Day22/live/dev/services/webserver-cluster
+
+      - name: Apply
+        run: terraform apply ci.tfplan
+        working-directory: Day22/live/dev/services/webserver-cluster
+
+  apply-prod:
+    name: Apply (production)
+    runs-on: ubuntu-latest
+    needs: apply-dev
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production'
+    environment: production
+
+    env:
+      AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_PROD_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_PROD_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION:    us-east-1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
+
+      - name: Init
+        run: terraform init
+        working-directory: Day22/live/production/services/webserver-cluster
+
+      - name: Download plan artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan
+          path: Day22/live/production/services/webserver-cluster
+
+      - name: Apply
+        run: terraform apply ci.tfplan
+        working-directory: Day22/live/production/services/webserver-cluster
+
+  integration-tests:
+    name: Integration Tests (Terratest)
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    env:
+      AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION:    us-east-1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
+          cache: true
+          cache-dependency-path: Day22/test/go.sum
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
+          terraform_wrapper: false
+
+      - name: Download Go dependencies
+        run: go mod download
+        working-directory: Day22/test
+
+      - name: Run Integration Tests
+        run: go test -v -timeout 30m -run "TestWebserverCluster" ./...
+        working-directory: Day22/test
