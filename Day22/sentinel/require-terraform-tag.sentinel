@@ -1,0 +1,52 @@
+# sentinel/require-terraform-tag.sentinel
+#
+# Enforces that every resource being created or updated carries a
+# ManagedBy = "terraform" tag.
+#
+# Why this matters:
+#   Without this tag, resources created manually (via the console or CLI)
+#   are indistinguishable from Terraform-managed resources. This causes
+#   state drift, accidental destruction during terraform apply, and makes
+#   cost allocation impossible. Enforcing the tag at the policy layer means
+#   the check happens before apply — not after the damage is done.
+#
+# Resources that are exempt (no tags API):
+#   - aws_iam_role_policy (inline policies — no tags)
+#   - aws_autoscaling_attachment
+#   - aws_lb_listener_rule
+#
+# Applied to: all workspaces in the terraform-challenge policy set
+# Enforcement level: hard-mandatory
+
+import "tfplan/v2" as tfplan
+
+# Resource types that do not support the tags attribute
+exempt_types = [
+  "aws_iam_role_policy",
+  "aws_iam_role_policy_attachment",
+  "aws_autoscaling_attachment",
+  "aws_lb_listener_rule",
+  "aws_lb_listener",
+  "aws_security_group_rule",
+  "aws_sns_topic_subscription",
+  "aws_autoscaling_group",   # tags are set via tag blocks, not a tags map
+]
+
+# Collect all resource changes that are creates or updates and are not exempt
+taggable_resources = filter tfplan.resource_changes as _, rc {
+  rc.type not in exempt_types and
+  (rc.change.actions contains "create" or rc.change.actions contains "update") and
+  rc.change.after is not null
+}
+
+# Every taggable resource must have ManagedBy = "terraform"
+managed_by_tag_present = rule {
+  all taggable_resources as _, rc {
+    rc.change.after.tags is not null and
+    rc.change.after.tags["ManagedBy"] is "terraform"
+  }
+}
+
+main = rule {
+  managed_by_tag_present
+}

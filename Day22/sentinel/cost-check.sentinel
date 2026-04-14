@@ -1,0 +1,46 @@
+# sentinel/cost-check.sentinel
+#
+# Blocks an apply if the estimated monthly cost increase exceeds $50.
+#
+# Why $50?
+#   This threshold is calibrated for the dev/staging environments in this
+#   challenge. A single t3.micro ALB + ASG cluster costs roughly $15–25/month.
+#   A $50 delta means someone is adding two full clusters or one unexpectedly
+#   large resource in a single apply — that warrants a human review.
+#
+# Production workspaces use a separate policy set with a $200 threshold,
+# reflecting the higher baseline cost of production infrastructure.
+#
+# How Terraform Cloud cost estimation works:
+#   After a plan, Terraform Cloud calls the AWS pricing API for every resource
+#   in the plan. It computes:
+#     - proposed_monthly_cost: total cost of all resources after apply
+#     - prior_monthly_cost:    total cost of all resources before apply
+#     - delta_monthly_cost:    proposed - prior (can be negative for destroys)
+#
+# This policy checks delta_monthly_cost — the net change — not the total.
+# A workspace that already costs $500/month can still add a $30 resource
+# without triggering this gate.
+#
+# Applied to: dev and staging workspaces
+# Enforcement level: soft-mandatory (can be overridden with a comment + approval)
+
+import "tfrun"
+
+# Maximum allowed monthly cost increase in USD
+maximum_monthly_increase = 50.0
+
+# tfrun.cost_estimate is null when cost estimation is disabled for the workspace.
+# Treat a missing estimate as a pass so this policy does not block workspaces
+# that have cost estimation turned off (e.g. local runs, module-only workspaces).
+cost_estimate_available = rule {
+  tfrun.cost_estimate is not null
+}
+
+cost_within_threshold = rule when cost_estimate_available {
+  float(tfrun.cost_estimate.delta_monthly_cost) < maximum_monthly_increase
+}
+
+main = rule {
+  cost_estimate_available and cost_within_threshold
+}

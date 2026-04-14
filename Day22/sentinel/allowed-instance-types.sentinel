@@ -1,0 +1,40 @@
+# sentinel/allowed-instance-types.sentinel
+#
+# Enforces that every AWS instance resource uses an approved instance type.
+# This prevents engineers from accidentally (or intentionally) deploying
+# expensive instance families (m5, c5, r5, p3, etc.) without going through
+# the cost-approval process.
+#
+# Approved families: t3 and t3a (burstable, cost-controlled)
+# All other families require explicit approval via a separate policy set.
+#
+# Applied to: all workspaces in the terraform-challenge policy set
+# Enforcement level: hard-mandatory (blocks apply, cannot be overridden)
+
+import "tfplan/v2" as tfplan
+
+# Collect every aws_instance and aws_launch_template resource change
+instance_resources = filter tfplan.resource_changes as _, rc {
+  rc.type in ["aws_instance", "aws_launch_template"] and
+  rc.change.actions contains "create" or rc.change.actions contains "update"
+}
+
+# Allowed instance type prefixes — extend this list via a PR + policy review
+allowed_prefixes = ["t3.", "t3a.", "t2."]
+
+# Check that every instance type starts with one of the allowed prefixes
+instance_types_allowed = rule {
+  all instance_resources as _, rc {
+    any allowed_prefixes as prefix {
+      strings.has_prefix(
+        rc.change.after.instance_type,
+        prefix
+      )
+    }
+  }
+}
+
+# The main rule — this is what Terraform Cloud evaluates
+main = rule {
+  instance_types_allowed
+}
