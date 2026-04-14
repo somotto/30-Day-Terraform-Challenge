@@ -1,0 +1,84 @@
+name: Day 21 — Terraform CI
+
+on:
+  pull_request:
+    paths: ["Day21/**"]
+  push:
+    branches: [main]
+    paths: ["Day21/**"]
+
+env:
+  AWS_DEFAULT_REGION: us-east-1
+
+jobs:
+  lint:
+    name: Format & Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
+
+      - name: fmt check (module)
+        run: terraform fmt -check -recursive
+        working-directory: Day21/modules
+
+      - name: fmt check (live)
+        run: terraform fmt -check -recursive
+        working-directory: Day21/live
+
+  unit-tests:
+    name: Unit Tests (terraform test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            us-east-1
+
+      - name: terraform init
+        run: terraform init
+        working-directory: Day21/modules/services/webserver-cluster
+
+      - name: terraform test
+        run: terraform test
+        working-directory: Day21/modules/services/webserver-cluster
+
+  integration-tests:
+    name: Integration Tests (Terratest)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    needs: [lint, unit-tests]
+    env:
+      AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+          cache: true
+          cache-dependency-path: Day21/test/go.sum
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
+          terraform_wrapper: false
+
+      - name: go mod download
+        run: go mod download
+        working-directory: Day21/test
+
+      - name: run integration tests
+        run: go test -v -timeout 30m -run "TestWebserverCluster" ./...
+        working-directory: Day21/test
