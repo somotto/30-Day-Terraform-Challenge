@@ -1,0 +1,10 @@
+aws_region         = "us-east-1"
+app_name           = "web-challenge-day26"
+environment        = "dev"
+ami_id             = "ami-0c1e21d82fe9c9"   # Amazon Linux 2023 — us-east-1
+vpc_id             = "vpc-xxxx"
+public_subnet_ids  = ["subnet-xxxxxxx", "subnet-xxxxx"]           # us-east-1b, us-east-1c
+private_subnet_ids = ["subnet-0fbhhhhh", "subnet-0fnnnnn", "subnet-02djjjjjj"]  # all 3 AZs
+min_size           = 1
+max_size           = 4
+desired_capacity   = 2
